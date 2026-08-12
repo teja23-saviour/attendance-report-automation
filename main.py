@@ -11,14 +11,12 @@ from attendance import run_automation, stop_automation, AutomationError
 # ============================================================
 
 root = tk.Tk()
+
 root.title("Attendance Report Automation")
 root.geometry("1100x760")
 root.minsize(900, 620)
 root.configure(bg="#f4f6f8")
 
-# IMPORTANT:
-# Use GRID for the whole window. This keeps the bottom buttons
-# visible even when the window is resized.
 root.grid_rowconfigure(1, weight=1)
 root.grid_columnconfigure(0, weight=1)
 
@@ -30,7 +28,11 @@ root.grid_columnconfigure(0, weight=1)
 username_var = tk.StringVar()
 password_var = tk.StringVar()
 show_password_var = tk.BooleanVar(value=False)
+
+# IMPORTANT:
+# This stores the folder selected by the teacher.
 output_folder_var = tk.StringVar()
+
 current_section_var = tk.StringVar(value="Ready")
 progress_var = tk.DoubleVar(value=0)
 
@@ -64,12 +66,13 @@ style.configure(
 # ============================================================
 
 header = tk.Frame(root, bg="#f4f6f8")
+
 header.grid(
     row=0,
     column=0,
     sticky="ew",
     padx=28,
-    pady=(16, 8),
+    pady=(16, 8)
 )
 
 tk.Label(
@@ -93,6 +96,7 @@ tk.Label(
 # ============================================================
 
 main = tk.Frame(root, bg="#f4f6f8")
+
 main.grid(
     row=1,
     column=0,
@@ -126,6 +130,7 @@ login_frame.grid(
 
 login_frame.grid_columnconfigure(1, weight=1)
 
+
 ttk.Label(
     login_frame,
     text="Username / Email:",
@@ -149,6 +154,7 @@ username_entry.grid(
     padx=(12, 0),
     pady=5,
 )
+
 
 ttk.Label(
     login_frame,
@@ -216,6 +222,7 @@ output_frame.grid(
 
 output_frame.grid_columnconfigure(0, weight=1)
 
+
 output_entry = ttk.Entry(
     output_frame,
     textvariable=output_folder_var,
@@ -232,6 +239,7 @@ output_entry.grid(
 
 
 def choose_output_folder():
+
     folder = filedialog.askdirectory(
         title="Choose Excel Output Folder"
     )
@@ -271,9 +279,10 @@ section_frame.grid(
 section_frame.grid_rowconfigure(1, weight=1)
 section_frame.grid_columnconfigure(0, weight=1)
 
+
 ttk.Label(
     section_frame,
-    text="Enter one section per line. Press Enter for the next section.",
+    text="Enter one section per line.",
 ).grid(
     row=0,
     column=0,
@@ -281,7 +290,9 @@ ttk.Label(
     pady=(0, 6),
 )
 
+
 section_container = tk.Frame(section_frame)
+
 section_container.grid(
     row=1,
     column=0,
@@ -290,6 +301,11 @@ section_container.grid(
 
 section_container.grid_rowconfigure(0, weight=1)
 section_container.grid_columnconfigure(1, weight=1)
+
+
+# ------------------------------------------------------------
+# LINE NUMBERS
+# ------------------------------------------------------------
 
 line_numbers = tk.Text(
     section_container,
@@ -310,6 +326,11 @@ line_numbers.grid(
     sticky="ns",
 )
 
+
+# ------------------------------------------------------------
+# SECTION TEXT BOX
+# ------------------------------------------------------------
+
 section_box = tk.Text(
     section_container,
     wrap="none",
@@ -327,6 +348,11 @@ section_box.grid(
     sticky="nsew",
 )
 
+
+# ------------------------------------------------------------
+# SCROLLBAR
+# ------------------------------------------------------------
+
 section_scroll = ttk.Scrollbar(
     section_container,
     orient="vertical",
@@ -343,29 +369,53 @@ section_box.configure(
     yscrollcommand=section_scroll.set
 )
 
+
 section_box.insert(
     "1.0",
     "BTECH-ME-AY2627-SEM-03-A"
 )
 
 
+# ============================================================
+# LINE NUMBER UPDATE
+# ============================================================
+
 def update_line_numbers(event=None):
+
     try:
+
         count = int(
             section_box.index("end-1c").split(".")[0]
         )
 
         numbers = "\n".join(
-            str(i) for i in range(1, count + 1)
+            str(i)
+            for i in range(1, count + 1)
         )
 
-        line_numbers.config(state="normal")
-        line_numbers.delete("1.0", "end")
-        line_numbers.insert("1.0", numbers)
-        line_numbers.config(state="disabled")
+        line_numbers.config(
+            state="normal"
+        )
+
+        line_numbers.delete(
+            "1.0",
+            "end"
+        )
+
+        line_numbers.insert(
+            "1.0",
+            numbers
+        )
+
+        line_numbers.config(
+            state="disabled"
+        )
 
         first, _ = section_box.yview()
-        line_numbers.yview_moveto(first)
+
+        line_numbers.yview_moveto(
+            first
+        )
 
     except tk.TclError:
         pass
@@ -416,7 +466,9 @@ status_frame.grid(
 status_frame.grid_rowconfigure(2, weight=1)
 status_frame.grid_columnconfigure(0, weight=1)
 
+
 status_header = tk.Frame(status_frame)
+
 status_header.grid(
     row=0,
     column=0,
@@ -424,12 +476,14 @@ status_header.grid(
     pady=(0, 6),
 )
 
+
 ttk.Label(
     status_header,
     text="Current:",
 ).pack(
     side="left"
 )
+
 
 ttk.Label(
     status_header,
@@ -439,6 +493,7 @@ ttk.Label(
     side="left",
     padx=(8, 0)
 )
+
 
 progress = ttk.Progressbar(
     status_frame,
@@ -454,7 +509,9 @@ progress.grid(
     pady=(0, 7),
 )
 
+
 status_container = tk.Frame(status_frame)
+
 status_container.grid(
     row=2,
     column=0,
@@ -463,6 +520,7 @@ status_container.grid(
 
 status_container.grid_rowconfigure(0, weight=1)
 status_container.grid_columnconfigure(0, weight=1)
+
 
 status_box = tk.Text(
     status_container,
@@ -480,6 +538,7 @@ status_box.grid(
     column=0,
     sticky="nsew",
 )
+
 
 status_scroll = ttk.Scrollbar(
     status_container,
@@ -503,45 +562,109 @@ status_box.configure(
 # ============================================================
 
 def update_status(message):
-    def update():
-        try:
-            status_box.config(state="normal")
-            status_box.insert("end", str(message) + "\n")
-            status_box.see("end")
-            status_box.config(state="disabled")
 
+    def update():
+
+        try:
+
+            text = str(message)
+
+            status_box.config(
+                state="normal"
+            )
+
+            status_box.insert(
+                "end",
+                text + "\n"
+            )
+
+            status_box.see("end")
+
+            status_box.config(
+                state="disabled"
+            )
+
+            # Section progress
             match = re.search(
                 r"(?:PROCESSING SECTION|SECTION)\s+(\d+)\s+OF\s+(\d+)",
-                str(message),
+                text,
                 re.IGNORECASE,
             )
 
             if match:
-                current = int(match.group(1))
-                total = max(int(match.group(2)), 1)
+
+                current = int(
+                    match.group(1)
+                )
+
+                total = max(
+                    int(match.group(2)),
+                    1
+                )
+
                 progress_var.set(
                     ((current - 1) / total) * 100
+                )
+
+                current_section_var.set(
+                    f"Section {current} of {total}"
+                )
+
+            # Finished section
+            if "Section completed:" in text:
+
+                current_section_var.set(
+                    "Section completed"
+                )
+
+            # Downloaded file
+            if text.startswith("Downloaded:"):
+
+                current_section_var.set(
+                    "File downloaded"
                 )
 
         except tk.TclError:
             pass
 
     try:
-        root.after(0, update)
+        root.after(
+            0,
+            update
+        )
+
     except tk.TclError:
         pass
 
 
 def clear_status():
-    status_box.config(state="normal")
-    status_box.delete("1.0", "end")
-    status_box.config(state="disabled")
+
+    status_box.config(
+        state="normal"
+    )
+
+    status_box.delete(
+        "1.0",
+        "end"
+    )
+
+    status_box.config(
+        state="disabled"
+    )
 
     progress_var.set(0)
-    current_section_var.set("Ready")
 
+    current_section_var.set(
+        "Ready"
+    )
+
+
+# ============================================================
+# GET SECTIONS
+# ============================================================
 
 def get_sections():
+
     raw = section_box.get(
         "1.0",
         "end-1c"
@@ -550,11 +673,13 @@ def get_sections():
     sections = []
 
     for line in raw.splitlines():
+
         section = line.strip()
 
-        # Allows users to type:
+        # Allows:
         # 1. BTECH...
         # 1) BTECH...
+
         section = re.sub(
             r"^\s*\d+\s*[\.\)]\s*",
             "",
@@ -567,13 +692,22 @@ def get_sections():
     return sections
 
 
+# ============================================================
+# RUNNING STATE
+# ============================================================
+
 def set_running(running):
+
     start_button.config(
-        state="disabled" if running else "normal"
+        state="disabled"
+        if running
+        else "normal"
     )
 
     stop_button.config(
-        state="normal" if running else "disabled"
+        state="normal"
+        if running
+        else "disabled"
     )
 
 
@@ -582,102 +716,247 @@ def set_running(running):
 # ============================================================
 
 def start_automation():
+
     username = username_var.get().strip()
+
     password = password_var.get()
+
     sections = get_sections()
 
+    # IMPORTANT:
+    # Get the folder selected by the teacher.
+    output_folder = output_folder_var.get().strip()
+
+
+    # --------------------------------------------------------
+    # VALIDATION
+    # --------------------------------------------------------
+
     if not username:
+
         messagebox.showwarning(
             "Missing Username",
             "Please enter the teacher username/email."
         )
+
         username_entry.focus_set()
+
         return
 
+
     if not password:
+
         messagebox.showwarning(
             "Missing Password",
             "Please enter the password."
         )
+
         password_entry.focus_set()
+
         return
 
+
     if not sections:
+
         messagebox.showwarning(
             "Missing Sections",
             "Please enter at least one Student Group."
         )
+
         section_box.focus_set()
+
         return
 
+
+    if not output_folder:
+
+        messagebox.showwarning(
+            "Missing Output Folder",
+            "Please select the Excel output folder."
+        )
+
+        output_entry.focus_set()
+
+        return
+
+
+    # --------------------------------------------------------
+    # VALIDATE / CREATE OUTPUT FOLDER
+    # --------------------------------------------------------
+
+    try:
+
+        import os
+
+        output_folder = os.path.abspath(
+            os.path.expanduser(
+                output_folder
+            )
+        )
+
+        os.makedirs(
+            output_folder,
+            exist_ok=True
+        )
+
+        # Store normalized path back in GUI
+        output_folder_var.set(
+            output_folder
+        )
+
+    except Exception as exc:
+
+        messagebox.showerror(
+            "Invalid Output Folder",
+            f"Could not access/create the selected folder.\n\n{exc}"
+        )
+
+        return
+
+
+    # --------------------------------------------------------
+    # CLEAR PREVIOUS STATUS
+    # --------------------------------------------------------
+
     clear_status()
+
     set_running(True)
 
-    update_status("=" * 70)
-    update_status("STARTING ATTENDANCE AUTOMATION")
-    update_status("=" * 70)
+
+    # --------------------------------------------------------
+    # HEADER STATUS
+    # --------------------------------------------------------
+
+    update_status(
+        "=" * 70
+    )
+
+    update_status(
+        "STARTING ATTENDANCE AUTOMATION"
+    )
+
+    update_status(
+        "=" * 70
+    )
+
     update_status(
         f"Total sections: {len(sections)}"
     )
+
+    update_status(
+        f"Excel output folder: {output_folder}"
+    )
+
     update_status("")
 
+
+    # --------------------------------------------------------
+    # BACKGROUND WORKER
+    # --------------------------------------------------------
+
     def worker():
+
         try:
-            # Keep this compatible with the current attendance.py.
+
+            # ==================================================
+            # IMPORTANT FIX:
+            #
+            # Pass output_folder to attendance.py.
+            # ==================================================
+
             files = run_automation(
                 username=username,
                 password=password,
                 student_groups=sections,
                 status_callback=update_status,
+                download_folder=output_folder,
             )
 
+
+            # --------------------------------------------------
+            # SUCCESS
+            # --------------------------------------------------
+
             def success():
+
                 progress_var.set(100)
-                current_section_var.set("Completed")
+
+                current_section_var.set(
+                    "Completed"
+                )
+
                 set_running(False)
 
-                count = len(files) if files else 0
+                count = (
+                    len(files)
+                    if files
+                    else 0
+                )
 
                 messagebox.showinfo(
                     "Automation Finished",
                     "Attendance automation completed.\n\n"
                     f"Files downloaded: {count}\n\n"
-                    "Check the selected/default output folder."
+                    f"Excel files saved in:\n"
+                    f"{output_folder}"
                 )
 
-            root.after(0, success)
+
+            root.after(
+                0,
+                success
+            )
+
 
         except AutomationError as exc:
+
             error_message = str(exc)
 
+
             def show_automation_error():
+
                 set_running(False)
-                current_section_var.set("Error")
+
+                current_section_var.set(
+                    "Error"
+                )
+
                 messagebox.showerror(
                     "Automation Error",
                     error_message
                 )
+
 
             root.after(
                 0,
                 show_automation_error
             )
 
+
         except Exception as exc:
+
             error_message = str(exc)
 
+
             def show_error():
+
                 set_running(False)
-                current_section_var.set("Error")
+
+                current_section_var.set(
+                    "Error"
+                )
+
                 messagebox.showerror(
                     "Automation Error",
                     error_message
                 )
 
+
             root.after(
                 0,
                 show_error
             )
+
 
     threading.Thread(
         target=worker,
@@ -690,20 +969,35 @@ def start_automation():
 # ============================================================
 
 def stop_current_automation():
+
     try:
+
         stop_automation()
+
     except Exception as exc:
+
         update_status(
             f"Stop request error: {exc}"
         )
 
+
     update_status("")
-    update_status("=" * 70)
-    update_status("STOP REQUEST SENT")
+
+    update_status(
+        "=" * 70
+    )
+
+    update_status(
+        "STOP REQUEST SENT"
+    )
+
     update_status(
         "Automation will stop after the current Playwright operation."
     )
-    update_status("=" * 70)
+
+    update_status(
+        "=" * 70
+    )
 
     stop_button.config(
         state="disabled"
@@ -711,12 +1005,15 @@ def stop_current_automation():
 
 
 # ============================================================
-# CLOSE
+# CLOSE APPLICATION
 # ============================================================
 
 def close_application():
+
     try:
+
         stop_automation()
+
     except Exception:
         pass
 
@@ -726,10 +1023,6 @@ def close_application():
 # ============================================================
 # FIXED BOTTOM BUTTON BAR
 # ============================================================
-#
-# This is a GRID row of the ROOT window, NOT part of the
-# expandable main area. Therefore it will ALWAYS remain visible.
-#
 
 button_bar = tk.Frame(
     root,
@@ -745,7 +1038,6 @@ button_bar.grid(
 
 button_bar.grid_propagate(False)
 
-button_bar.grid_columnconfigure(0, weight=1)
 
 button_inner = tk.Frame(
     button_bar,
@@ -759,6 +1051,7 @@ button_inner.pack(
     pady=10,
 )
 
+
 start_button = ttk.Button(
     button_inner,
     text="▶  GENERATE EXCEL",
@@ -770,6 +1063,7 @@ start_button.pack(
     side="left",
     padx=(0, 10),
 )
+
 
 stop_button = ttk.Button(
     button_inner,
@@ -784,6 +1078,7 @@ stop_button.pack(
     padx=10,
 )
 
+
 close_button = ttk.Button(
     button_inner,
     text="CLOSE APPLICATION",
@@ -791,20 +1086,19 @@ close_button = ttk.Button(
 )
 
 close_button.pack(
-    side="right",
+    side="right"
 )
 
 
 # ============================================================
-# IMPORTANT:
-# Do NOT bind Enter globally.
-# Enter inside section_box only creates another section line.
+# WINDOW CLOSE
 # ============================================================
 
 root.protocol(
     "WM_DELETE_WINDOW",
     close_application
 )
+
 
 username_entry.focus_set()
 

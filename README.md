@@ -2,98 +2,151 @@
 
 A Windows desktop application that automates multi-section attendance report generation and Excel export using Python, Tkinter, and Playwright.
 
-## Overview
+## Problem Statement
 
-Generating attendance reports for multiple student sections can involve repeatedly performing the same browser operations:
+Generating attendance reports for multiple student sections requires repeatedly performing the same browser operations:
 
 **Login → Select Section → Check Report → Generate/Reload if Required → Export → Download Excel**
 
-This project automates that repetitive workflow through a Windows desktop application.
-
-The user enters the required student sections, selects an output folder, and starts the automation. The application processes sections sequentially, verifies the selected section, checks the report state, performs the required browser actions, and saves the resulting Excel files to the selected directory.
-
-## Problem
-
-Manually collecting attendance reports becomes repetitive when the same report-generation and export workflow has to be performed for multiple sections.
+Performing this manually for every section is repetitive, time-consuming, and can lead to mistakes.
 
 ## Solution
 
-The application provides a reusable automation workflow that:
+This project automates the complete attendance report workflow through a Windows desktop application.
 
-- Accepts multiple student sections.
-- Searches for and verifies the requested section.
-- Checks the current report timestamp/state.
-- Determines whether the existing report can be exported.
-- Generates and reloads the report when required.
-- Navigates through the export workflow.
-- Downloads the Excel report.
-- Saves it to the user-selected output folder.
-- Continues automatically with the next section.
+The user can enter multiple student sections, select an output folder, and start the automation. The application processes each section sequentially, checks the report state, generates or reloads the report when required, exports it as Excel, and saves the downloaded file to the selected folder.
 
 ## Features
 
-- 🖥️ Windows desktop GUI using Tkinter
-- 🔐 Runtime credential input
-- 📝 Multiple section input
-- 🔎 Student-group search and verification
-- ⏱️ Timestamp-based report processing
-- 🔄 Automatic report generation and reload when required
-- 📤 Automated Excel export
-- 📥 Automatic download handling
-- 📁 Custom output folder selection
-- 📊 Live automation status
-- 🛑 Start/Stop automation controls
-- 🔁 Sequential multi-section processing
+- Windows desktop GUI
+- Runtime login credentials
+- Multiple student-section input
+- Student-group selection and verification
+- Report timestamp/state checking
+- Automatic report generation when required
+- Automatic report reload
+- Excel export automation
+- Automatic download handling
+- Custom output-folder selection
+- Live automation status
+- Start/Stop controls
+- Sequential processing of multiple sections
+- Windows setup and launch scripts
+
+## Technology Stack
+
+- **Python** – Core application and automation logic
+- **Tkinter** – Desktop GUI
+- **Playwright** – Browser automation
+- **Threading** – Background execution and GUI responsiveness
+- **Regular Expressions** – Timestamp and text processing
+- **pathlib / os** – File and directory management
+- **Batch Scripts** – Windows setup and launching
+- **Git & GitHub** – Version control and project hosting
 
 ## How It Works
 
+For each requested section, the application follows this workflow:
+
 ```text
-User
- │
- ├── Credentials
- ├── Student Sections
- └── Output Folder
-          │
-          ▼
-     Tkinter GUI
-          │
-          ▼
-  Start Automation
-          │
-          ▼
-      Playwright
-          │
-          ▼
-        Login
-          │
-          ▼
-   Select & Verify Section
-          │
-          ▼
-  Check Report Timestamp
-          │
-       ┌──┴──┐
-       │     │
-       ▼     ▼
-    Ready   Regeneration
-       │     Required
-       │        │
-       │        ▼
-       │    Generate Report
-       │        │
-       │        ▼
-       │     Reload Report
-       │        │
-       └────┬───┘
-            │
-            ▼
-          Export
-            │
-            ▼
-      Download Excel
-            │
-            ▼
-     Save to Output Folder
-            │
-            ▼
-      Process Next Section
+Start
+  ↓
+Launch Browser
+  ↓
+Login
+  ↓
+Find Student Group
+  ↓
+Select and Verify Section
+  ↓
+Check Report Timestamp / State
+  ↓
+ ┌──────────────────────────────┐
+ │                              │
+ ▼                              ▼
+Report Ready              Regeneration Required
+ │                              │
+ │                              ▼
+ │                       Generate Report
+ │                              │
+ │                              ▼
+ │                       Wait and Reload
+ │                              │
+ └──────────────┬───────────────┘
+                ↓
+          Open Export Menu
+                ↓
+             Select Excel
+                ↓
+          Wait for Download
+                ↓
+        Save to Output Folder
+                ↓
+        Process Next Section
+                ↓
+               End
+## Example Sections
+
+Multiple sections can be entered, one per line:
+
+BTECH-ME-AY2627-SEM-03-A
+BTECH-ME-AY2627-SEM-03-B
+BTECH-ME-AY2627-SEM-03-C
+
+The application processes each section sequentially.
+
+GUI
+
+The application provides the following main controls and areas:
+
+Login
+Username/email
+Password
+Show/hide password
+Student Sections
+Multi-line section input
+One section per line
+Sequential processing
+Excel Output
+Output-folder selection
+Browse option
+User-defined destination
+Automation Status
+
+Displays:
+
+Current section
+Current operation
+Progress messages
+Completion status
+Error information
+Controls
+GENERATE EXCEL
+STOP AUTOMATION
+CLOSE APPLICATION
+Project Highlights
+Automated a repetitive browser-based attendance-report workflow using Python and Playwright.
+Developed a Tkinter desktop GUI for section management, output selection, status monitoring, and execution control.
+Implemented timestamp-aware report processing to determine whether a report requires regeneration.
+Added multi-section sequential processing.
+Implemented automatic Excel download handling.
+Added configurable output directories.
+Used background execution to keep the GUI responsive.
+Created a Windows setup and desktop-launch workflow.
+Managed the project using Git and GitHub.
+Skills Demonstrated
+
+Python · Tkinter · Playwright · Browser Automation · GUI Development · Threading · File Handling · Error Handling · Git · GitHub
+Author
+
+Teja Rayavarapu
+
+GitHub: https://github.com/teja23-saviour
+
+Repository: https://github.com/teja23-saviour/attendance-report-automation
+
+License
+
+This project is intended for educational and authorized institutional use.
+
+Use the automation only when you have appropriate permission to access and automate the target attendance system.

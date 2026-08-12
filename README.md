@@ -2,150 +2,141 @@
 
 A Windows desktop application that automates multi-section attendance report generation and Excel export using Python, Tkinter, and Playwright.
 
+---
+
 ## Problem Statement
 
-Generating attendance reports for multiple student sections requires repeatedly performing the same browser operations:
+Generating attendance reports for multiple student sections requires repeatedly performing the same manual browser operations:
 
-**Login → Select Section → Check Report → Generate/Reload if Required → Export → Download Excel**
+Login -> Select Section -> Check Report -> Generate / Reload -> Export -> Download Excel
 
-Performing this manually for every section is repetitive, time-consuming, and can lead to mistakes.
+Performing this manually for every section is repetitive, time-consuming, and prone to human error.
+
+---
 
 ## Solution
 
-This project automates the complete attendance report workflow through a Windows desktop application.
+This project automates the complete attendance report workflow through a native Windows desktop application.
 
-The user can enter multiple student sections, select an output folder, and start the automation. The application processes each section sequentially, checks the report state, generates or reloads the report when required, exports it as Excel, and saves the downloaded file to the selected folder.
+The user enters multiple student sections, selects a custom output folder, and triggers the automation. The application processes each section sequentially, evaluates the report's current state, generates or reloads the report when required, exports it as an Excel file, and saves the download directly to the specified directory.
+
+---
 
 ## Features
 
-- Windows desktop GUI
-- Runtime login credentials
-- Multiple student-section input
-- Student-group selection and verification
-- Report timestamp/state checking
-- Automatic report generation when required
-- Automatic report reload
-- Excel export automation
-- Automatic download handling
-- Custom output-folder selection
-- Live automation status
-- Start/Stop controls
-- Sequential processing of multiple sections
-- Windows setup and launch scripts
+* **Windows Desktop GUI** – Intuitive control panel built with Tkinter.
+* **Runtime Login Credentials** – Securely handles credentials during active sessions without hardcoding.
+* **Batch Input Processing** – Supports multi-line input for bulk section processing.
+* **Student-Group Verification** – Automatically searches, selects, and validates student groups.
+* **Timestamp & State Awareness** – Evaluates report timestamps to determine if regeneration is required.
+* **Automatic Reload & Regeneration** – Handles dynamic wait times and report regeneration cycles automatically.
+* **Excel Export Automation** – Navigates export menus and handles direct `.xlsx` downloads.
+* **Custom File Management** – Automatically routes downloaded reports to user-defined directories.
+* **Live Status Tracking** – Real-time terminal/status display for operations, progress, and errors.
+* **Execution Controls** – Start, Stop, and Exit capabilities with thread safety.
+* **Non-Blocking Architecture** – Built with multithreading to keep the UI fully responsive during long automation runs.
+* **Automated Environment Setup** – Includes Windows batch scripts for simple one-click installation and startup.
+
+---
 
 ## Technology Stack
 
-- **Python** – Core application and automation logic
-- **Tkinter** – Desktop GUI
-- **Playwright** – Browser automation
-- **Threading** – Background execution and GUI responsiveness
-- **Regular Expressions** – Timestamp and text processing
-- **pathlib / os** – File and directory management
-- **Batch Scripts** – Windows setup and launching
-- **Git & GitHub** – Version control and project hosting
+| Component | Technology | Role / Usage |
+| :--- | :--- | :--- |
+| **Language** | Python | Core logic and automation driver |
+| **GUI Framework** | Tkinter | Native desktop user interface |
+| **Automation** | Playwright | Headless/Headed browser automation |
+| **Concurrency** | Threading | Decouples UI thread from automation execution |
+| **Parsing** | re (Regex) | Text extraction and timestamp analysis |
+| **FileSystem** | pathlib / os | Directory creation and path resolution |
+| **Tooling** | Batch Scripts | Environment setup (.bat) and launcher |
+| **VCS** | Git / GitHub | Source control and release management |
 
-## How It Works
+---
 
-For each requested section, the application follows this workflow:
+## Prerequisites & System Requirements
 
-```text
-Start
-  ↓
-Launch Browser
-  ↓
-Login
-  ↓
-Find Student Group
-  ↓
-Select and Verify Section
-  ↓
-Check Report Timestamp / State
-  ↓
- ┌──────────────────────────────┐
- │                              │
- ▼                              ▼
-Report Ready              Regeneration Required
- │                              │
- │                              ▼
- │                       Generate Report
- │                              │
- │                              ▼
- │                       Wait and Reload
- │                              │
- └──────────────┬───────────────┘
-                ↓
-          Open Export Menu
-                ↓
-             Select Excel
-                ↓
-          Wait for Download
-                ↓
-        Save to Output Folder
-                ↓
-        Process Next Section
-                ↓
-               End
-## Example Sections
+Before running the project manually, ensure your system meets the following requirements:
 
-Multiple sections can be entered, one per line:
+* **Operating System:** Windows 10 or Windows 11 (64-bit)
+* **Python:** Python 3.8 or higher installed and added to PATH
+* **Playwright Dependencies:**
+  * playwright (Python package)
+  * Chromium browser binaries installed via Playwright
+
+### Quick Installation
+
+If not using setup.bat, install the required packages using pip:
+
+pip install playwright
+playwright install chromium
+
+---
+
+## Workflow
+
+1. **Initialize & Authenticate:** Launches browser via Playwright and logs into the target portal using active session credentials.
+2. **Group Selection & Verification:** Navigates to the section management page, searches for the specified student group, and verifies selection.
+3. **State & Timestamp Inspection:** Checks current report timestamp. If the report is up to date, it skips directly to export. If stale or missing, it triggers a background regeneration and polls for completion.
+4. **Export & File Handling:** Triggers the Excel export option via DOM interaction, captures the browser download stream, and writes the file to the chosen local directory.
+5. **Sequential Loop:** Iterates to the next section in the queue until all input sections are processed.
+
+---
+
+## Example Input Format
+
+When supplying sections in the GUI multi-line text area, format each section on a new line:
 
 BTECH-ME-AY2627-SEM-03-A
 BTECH-ME-AY2627-SEM-03-B
 BTECH-ME-AY2627-SEM-03-C
 
-The application processes each section sequentially.
+---
 
-GUI
+## Application Interface Structure
 
-The application provides the following main controls and areas:
+The desktop interface is structured into clear functional components:
 
-Login
-Username/email
-Password
-Show/hide password
-Student Sections
-Multi-line section input
-One section per line
-Sequential processing
-Excel Output
-Output-folder selection
-Browse option
-User-defined destination
-Automation Status
+* **Authentication Panel:** Input controls for username and password with toggleable password visibility.
+* **Section Batch Input:** Multi-line text field for queuing section IDs.
+* **Output Configuration:** File picker dialog to select destination directory for Excel exports.
+* **Live Telemetry & Logs:** Status log box showing real-time operational messages, errors, and progress updates.
+* **Execution Controls:** Quick-action buttons for starting (`GENERATE EXCEL`), stopping (`STOP AUTOMATION`), or closing the application.
 
-Displays:
+---
 
-Current section
-Current operation
-Progress messages
-Completion status
-Error information
-Controls
-GENERATE EXCEL
-STOP AUTOMATION
-CLOSE APPLICATION
-Project Highlights
-Automated a repetitive browser-based attendance-report workflow using Python and Playwright.
-Developed a Tkinter desktop GUI for section management, output selection, status monitoring, and execution control.
-Implemented timestamp-aware report processing to determine whether a report requires regeneration.
-Added multi-section sequential processing.
-Implemented automatic Excel download handling.
-Added configurable output directories.
-Used background execution to keep the GUI responsive.
-Created a Windows setup and desktop-launch workflow.
-Managed the project using Git and GitHub.
-Skills Demonstrated
+## Setup & Installation
 
-Python · Tkinter · Playwright · Browser Automation · GUI Development · Threading · File Handling · Error Handling · Git · GitHub
-Author
+1. **Clone the Repository:**
+   git clone https://github.com/teja23-saviour/attendance-report-automation.git
+   cd attendance-report-automation
 
-Teja Rayavarapu
+2. **Run Windows Setup:**
+   Double-click `setup.bat` or execute via command prompt:
+   setup.bat
 
-GitHub: https://github.com/teja23-saviour
+3. **Launch the Application:**
+   Double-click `launch.bat` or run:
+   python main.py
 
-Repository: https://github.com/teja23-saviour/attendance-report-automation
+---
 
-License
+## Skills Demonstrated
+
+Python · Tkinter · Playwright · Browser Automation · GUI Development · Multithreading · File I/O · Error Handling · Git · GitHub
+
+---
+
+## Author
+
+**Teja Rayavarapu**
+
+* **GitHub:** [teja23-saviour](https://github.com/teja23-saviour)
+* **Repository:** [attendance-report-automation](https://github.com/teja23-saviour/attendance-report-automation)
+
+---
+
+## License
 
 This project is intended for educational and authorized institutional use.
 

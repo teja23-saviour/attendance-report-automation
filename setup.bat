@@ -11,35 +11,52 @@ echo ==============================================
 echo.
 
 echo Checking Python...
+
 python --version >nul 2>&1
 
 if errorlevel 1 (
     echo.
     echo ERROR: Python was not found.
     echo.
-    echo Please install Python 3.10 or newer and
-    echo make sure "Add Python to PATH" is enabled.
+    echo Please install Python 3.10 or newer.
+    echo Make sure "Add Python to PATH" is enabled
+    echo during Python installation.
     echo.
     pause
     exit /b 1
 )
 
 echo Python found.
+python --version
 echo.
 
-echo Installing required packages...
+echo Installing required Python packages...
+echo.
+
+python -m pip install --upgrade pip
+
+if errorlevel 1 (
+    echo.
+    echo ERROR: Could not update pip.
+    echo.
+    pause
+    exit /b 1
+)
+
 python -m pip install -r requirements.txt
 
 if errorlevel 1 (
     echo.
-    echo ERROR: Failed to install Python packages.
+    echo ERROR: Failed to install required packages.
     echo.
     pause
     exit /b 1
 )
 
 echo.
-echo Installing Playwright Chromium...
+echo Installing Playwright Chromium browser...
+echo.
+
 python -m playwright install chromium
 
 if errorlevel 1 (
@@ -52,6 +69,7 @@ if errorlevel 1 (
 
 echo.
 echo Creating Desktop shortcut...
+echo.
 
 set "APP_DIR=%~dp0"
 set "RUN_FILE=%APP_DIR%run.bat"
@@ -60,8 +78,10 @@ for /f "usebackq delims=" %%D in (`powershell -NoProfile -Command "[Environment]
 
 if not exist "%DESKTOP%" (
     echo.
-    echo WARNING: Could not find Desktop folder.
+    echo WARNING: Desktop folder could not be found.
+    echo.
     echo Setup is otherwise complete.
+    echo You can start the application using run.bat.
     echo.
     pause
     exit /b 0
@@ -74,24 +94,25 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "$ws = New-Object -ComObj
 if exist "%SHORTCUT%" (
     echo.
     echo ==============================================
-    echo          SETUP COMPLETED SUCCESSFULLY
+    echo       SETUP COMPLETED SUCCESSFULLY
     echo ==============================================
     echo.
-    echo A desktop shortcut has been created:
+    echo Desktop shortcut created:
     echo.
     echo     Attendance Report Automation
     echo.
-    echo You can use that shortcut to start the
-    echo application from now on.
+    echo You can now launch the application
+    echo using the desktop shortcut.
     echo.
 ) else (
     echo.
     echo ==============================================
-    echo SETUP COMPLETED, BUT SHORTCUT FAILED
+    echo   SETUP COMPLETED - SHORTCUT NOT CREATED
     echo ==============================================
     echo.
-    echo You can still start the application using:
-    echo run.bat
+    echo You can start the application manually using:
+    echo.
+    echo     run.bat
     echo.
 )
 

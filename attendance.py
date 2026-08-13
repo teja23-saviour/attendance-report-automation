@@ -20,14 +20,16 @@ REPORT_URL = (
     "Student%20Cumulative%20Attendance"
 )
 
+# Reports younger than this are exported directly.
 REPORT_MAX_AGE_MINUTES = 60
+
+# Wait after clicking Generate New Report.
 REPORT_GENERATION_WAIT_SECONDS = 120
 
 
 class AutomationError(Exception):
     """Expected automation failure shown by the GUI."""
     pass
-
 
 
 # ============================================================
@@ -53,6 +55,870 @@ def check_stop():
 
 
 # ============================================================
+# HELPER: TIMESTAMP
+# ============================================================
+
+def timestamp_age_minutes(text):
+    """
+    Convert Lightbooks report timestamp text into minutes.
+
+    Examples:
+        just now       -> 0
+        5 minutes ago  -> 5
+        1 hour ago     -> 60
+        14 hours ago   -> 840
+        yesterday      -> 1440
+        2 days ago     -> 2880
+    """
+
+    t = " ".join(text.lower().split())
+
+    if "just now" in t:
+        return 0
+
+    # Minutes
+    match = re.search(r"\b(\d+)\s+minute(?:s)?\b", t)
+
+    if match:
+        return int(match.group(1))
+
+    if re.search(r"\b(?:a|an)\s+minute\b", t):
+        return 1
+
+    # Hours
+    match = re.search(r"\b(\d+)\s+hour(?:s)?\b", t)
+
+    if match:
+        return int(match.group(1)) * 60
+
+    if re.search(r"\b(?:a|an)\s+hour\b", t):
+        return 60
+
+    # Days
+    match = re.search(r"\b(\d+)\s+day(?:s)?\b", t)
+
+    if match:
+        return int(match.group(1)) * 1440
+
+    if "yesterday" in t:
+        return 1440
+
+    if re.search(r"\b(?:a|an)\s+day\b", t):
+        return 1440
+
+    raise AutomationError(
+        f"Could not understand report timestamp:\n{text}"
+    )
+
+
+# ============================================================
+# HELPER: READ REPORT TIMESTAMP
+# ============================================================
+
+def get_timestamp_text(page):
+    """
+    Read the visible Lightbooks report-generated message.
+    """
+
+    candidates = [
+        page.locator("div.form-message.text-muted.small"),
+        page.get_by_text(
+            re.compile(
+                r"This report was generated",
+                re.IGNORECASE
+            )
+        ),
+    ]
+
+    for locator in candidates:
+
+        try:
+
+            count = locator.count()
+
+            for i in range(count):
+
+                item = locator.nth(i)
+
+                try:
+                    if not item.is_visible():
+                        continue
+                except Exception:
+                    continue
+
+                try:
+                    text = " ".join(
+                        item.inner_text().split()
+                    )
+                except Exception:
+                    continue
+
+                if "report was generated" in text.lower():
+
+                    match = re.search(
+                        r"This report was generated\s+(.+?)(?:\.|$)",
+                        text,
+                        flags=re.IGNORECASE,
+                    )
+
+                    if match:
+                        return match.group(0).strip()
+
+        except Exception:
+            pass
+
+    raise AutomationError(
+        "Could not find the Lightbooks report timestamp message.\n"
+        "Expected text like:\n"
+        "'This report was generated 5 minutes ago.'"
+    )
+
+
+# ============================================================
+# HELPER: FIND STUDENT GROUP INPUT
+# ============================================================
+
+def find_student_group_input(page):
+    """
+    Always locate a fresh Student Group input.
+
+    This is intentionally called again after every full page reload.
+    """
+
+    selectors = [
+        'input[data-fieldname="student_group"]',
+        'input[placeholder="Student Group"]',
+        'input[placeholder*="Student Group"]',
+    ]
+
+    deadline = time.time() + 30
+
+    while time.time() < deadline:
+
+        check_stop()
+
+        for selector in selectors:
+
+            try:
+
+                locator = page.locator(selector)
+
+                count = locator.count()
+
+                for i in range(count):
+
+                    candidate = locator.nth(i)
+
+                    try:
+
+                        if candidate.is_visible():
+
+                            candidate.scroll_into_view_if_needed(
+                                timeout=3000
+                            )
+
+                            return candidate
+
+                    except Exception:
+                        pass
+
+            except Exception:
+                pass
+
+        page.wait_for_timeout(500)
+
+    raise AutomationError(
+        "Could not find Student Group input after page reload."
+    )
+
+
+# ============================================================
+# HELPER: SELECT STUDENT GROUP
+# ============================================================
+
+def select_student_group(page, student_group, status):
+    """
+    Enter and select the exact Student Group.
+
+    This does NOT rely only on [role='option'] because
+    Lightbooks can render autocomplete suggestions using
+    different HTML structures.
+    """
+
+    status("Finding Student Group field...")
+
+    group_input = find_student_group_input(page)
+
+    status("Student Group field found.")
+
+    # --------------------------------------------------------
+    # CLEAR OLD VALUE
+    # --------------------------------------------------------
+
+    try:
+        group_input.click()
+    except Exception:
+        pass
+
+    try:
+        group_input.press("Control+A")
+        group_input.press("Backspace")
+    except Exception:
+        pass
+
+    try:
+        group_input.fill("")
+    except Exception:
+        pass
+
+    # --------------------------------------------------------
+    # ENTER NEW SECTION
+    # --------------------------------------------------------
+
+    status(
+        f"Entering section: {student_group}"
+    )
+
+    group_input.fill(student_group)
+
+    check_stop()
+
+    status("Waiting for matching sections...")
+
+    # Give autocomplete time to appear.
+    page.wait_for_timeout(2000)
+
+    # --------------------------------------------------------
+    # POSSIBLE AUTOCOMPLETE SELECTORS
+    # --------------------------------------------------------
+
+    dropdown_selectors = [
+
+        '[role="option"]:visible',
+
+        '.awesomplete li:visible',
+
+        '.ui-autocomplete li:visible',
+
+        '.ui-menu-item:visible',
+
+        '.dropdown-menu li:visible',
+
+        '.awesomplete ul li:visible',
+
+        'ul[role="listbox"] li:visible',
+
+        'li:visible',
+
+    ]
+
+    deadline = time.time() + 20
+
+    while time.time() < deadline:
+
+        check_stop()
+
+        # ====================================================
+        # FIRST: LOOK FOR EXACT TEXT
+        # ====================================================
+
+        for selector in dropdown_selectors:
+
+            try:
+
+                elements = page.locator(selector)
+
+                count = elements.count()
+
+                for i in range(count):
+
+                    check_stop()
+
+                    item = elements.nth(i)
+
+                    try:
+
+                        if not item.is_visible():
+                            continue
+
+                    except Exception:
+                        continue
+
+                    try:
+                        text = " ".join(
+                            item.inner_text().split()
+                        )
+                    except Exception:
+                        continue
+
+                    # Exact match
+                    if text == student_group:
+
+                        status(
+                            "Exact Student Group found in suggestions."
+                        )
+
+                        try:
+                            item.scroll_into_view_if_needed(
+                                timeout=3000
+                            )
+                        except Exception:
+                            pass
+
+                        try:
+                            item.click(timeout=5000)
+
+                        except Exception:
+
+                            try:
+                                item.click(
+                                    timeout=5000,
+                                    force=True
+                                )
+                            except Exception:
+                                continue
+
+                        page.wait_for_timeout(1000)
+
+                        # Verify
+                        try:
+
+                            selected_value = (
+                                group_input.input_value()
+                                .strip()
+                            )
+
+                        except Exception:
+
+                            selected_value = ""
+
+                        if selected_value == student_group:
+
+                            status(
+                                f"Selected value: {selected_value}"
+                            )
+
+                            status(
+                                "Student Group selection verified."
+                            )
+
+                            return group_input
+
+                    # Some Lightbooks entries may contain
+                    # extra information after the section.
+                    if text.startswith(student_group + " "):
+                        try:
+
+                            item.scroll_into_view_if_needed(
+                                timeout=3000
+                            )
+
+                            item.click(timeout=5000)
+
+                            page.wait_for_timeout(1000)
+
+                            selected_value = (
+                                group_input.input_value()
+                                .strip()
+                            )
+
+                            if selected_value == student_group:
+
+                                status(
+                                    f"Selected value: {selected_value}"
+                                )
+
+                                status(
+                                    "Student Group selection verified."
+                                )
+
+                                return group_input
+
+                        except Exception:
+                            pass
+
+            except Exception:
+                pass
+
+        # ====================================================
+        # SECOND: USE PAGE TEXT SEARCH
+        # ====================================================
+
+        try:
+
+            exact_text = page.get_by_text(
+                student_group,
+                exact=True
+            )
+
+            count = exact_text.count()
+
+            for i in range(count):
+
+                check_stop()
+
+                item = exact_text.nth(i)
+
+                try:
+
+                    if not item.is_visible():
+                        continue
+
+                    item.scroll_into_view_if_needed(
+                        timeout=3000
+                    )
+
+                    item.click(timeout=5000)
+
+                    page.wait_for_timeout(1000)
+
+                    selected_value = (
+                        group_input.input_value()
+                        .strip()
+                    )
+
+                    if selected_value == student_group:
+
+                        status(
+                            "Exact Student Group selected."
+                        )
+
+                        status(
+                            f"Selected value: {selected_value}"
+                        )
+
+                        status(
+                            "Student Group selection verified."
+                        )
+
+                        return group_input
+
+                except Exception:
+                    pass
+
+        except Exception:
+            pass
+
+        # ====================================================
+        # THIRD: KEYBOARD FALLBACK
+        # ====================================================
+
+        try:
+
+            group_input.press("ArrowDown")
+
+            page.wait_for_timeout(300)
+
+            group_input.press("Enter")
+
+            page.wait_for_timeout(1000)
+
+            selected_value = (
+                group_input.input_value()
+                .strip()
+            )
+
+            if selected_value == student_group:
+
+                status(
+                    f"Selected value: {selected_value}"
+                )
+
+                status(
+                    "Student Group selection verified."
+                )
+
+                return group_input
+
+        except Exception:
+            pass
+
+        page.wait_for_timeout(500)
+
+    # --------------------------------------------------------
+    # FINAL FAILURE
+    # --------------------------------------------------------
+
+    try:
+        current_value = group_input.input_value().strip()
+    except Exception:
+        current_value = ""
+
+    raise AutomationError(
+        "Could not select Student Group:\n"
+        f"{student_group}\n\n"
+        f"Current input value: {current_value}\n\n"
+        "The exact section was not selected."
+    )
+
+
+# ============================================================
+# HELPER: FULL PAGE RELOAD BEFORE NEW SECTION
+# ============================================================
+
+def reload_page_before_section(page, status):
+    """
+    IMPORTANT:
+
+    This is a FULL browser page reload.
+
+    It is NOT the Lightbooks 'Reload Report' button.
+
+    This function is called before every section after
+    the first section.
+    """
+
+    status("")
+    status(
+        "Reloading the FULL attendance webpage "
+        "before the next section..."
+    )
+
+    check_stop()
+
+    page.reload(
+        wait_until="domcontentloaded",
+        timeout=60000
+    )
+
+    status("Full webpage reload completed.")
+
+    # Allow Lightbooks frontend to initialize.
+    page.wait_for_timeout(5000)
+
+    check_stop()
+
+    # Make sure Student Group field has returned.
+    status(
+        "Waiting for Student Group field after page reload..."
+    )
+
+    find_student_group_input(page)
+
+    status(
+        "Attendance page is ready for the next section."
+    )
+
+
+# ============================================================
+# HELPER: GENERATE NEW REPORT
+# ============================================================
+
+def generate_new_report(page, status):
+    """
+    Find and click Generate New Report.
+
+    The button is located fresh on every attempt.
+    """
+
+    status(
+        "Preparing Generate New Report button..."
+    )
+
+    selectors = [
+
+        'button[data-label="Generate%20New%20Report"]',
+
+        'button[data-label="Generate New Report"]',
+
+        'button:has-text("Generate New Report")',
+
+    ]
+
+    deadline = time.time() + 45
+
+    last_error = None
+
+    while time.time() < deadline:
+
+        check_stop()
+
+        for selector in selectors:
+
+            try:
+
+                buttons = page.locator(selector)
+
+                count = buttons.count()
+
+                for i in range(count):
+
+                    check_stop()
+
+                    button = buttons.nth(i)
+
+                    try:
+
+                        if not button.is_visible():
+                            continue
+
+                    except Exception:
+                        continue
+
+                    try:
+
+                        button.scroll_into_view_if_needed(
+                            timeout=3000
+                        )
+
+                    except Exception:
+                        pass
+
+                    try:
+
+                        if not button.is_enabled():
+                            continue
+
+                    except Exception:
+                        continue
+
+                    # Normal click
+                    try:
+
+                        button.click(
+                            timeout=5000
+                        )
+
+                        status(
+                            "Generate New Report clicked."
+                        )
+
+                        return
+
+                    except Exception as error:
+
+                        last_error = error
+
+                    # Force click fallback
+                    try:
+
+                        if (
+                            button.is_visible()
+                            and button.is_enabled()
+                        ):
+
+                            button.click(
+                                timeout=3000,
+                                force=True
+                            )
+
+                            status(
+                                "Generate New Report clicked."
+                            )
+
+                            return
+
+                    except Exception as error:
+
+                        last_error = error
+
+            except Exception as error:
+
+                last_error = error
+
+        # Give Lightbooks time to finish rendering.
+        page.wait_for_timeout(1000)
+
+    detail = ""
+
+    if last_error:
+        detail = (
+            f"\nLast click error: {last_error}"
+        )
+
+    raise AutomationError(
+        "Generate New Report button was found "
+        "but could not be clicked after 45 seconds."
+        + detail
+    )
+
+
+# ============================================================
+# HELPER: WAIT FOR REPORT GENERATION
+# ============================================================
+
+def wait_for_generation(status):
+    """
+    Wait exactly 2 minutes after Generate New Report.
+    """
+
+    status(
+        "REPORT GENERATION WAIT: 2 minutes"
+    )
+
+    remaining = REPORT_GENERATION_WAIT_SECONDS
+
+    while remaining > 0:
+
+        check_stop()
+
+        if (
+            remaining % 10 == 0
+            or remaining <= 5
+        ):
+
+            status(
+                "Waiting for report generation: "
+                f"{remaining} seconds remaining"
+            )
+
+        time.sleep(1)
+
+        remaining -= 1
+
+    status(
+        "2-minute report generation wait completed."
+    )
+
+
+# ============================================================
+# HELPER: LIGHTBOOKS RELOAD REPORT
+# ============================================================
+
+def reload_report(page, status):
+    """
+    Click Lightbooks' Reload Report button.
+
+    This is NOT page.reload().
+    """
+
+    status(
+        "Finding Lightbooks 'Reload Report' button..."
+    )
+
+    selector = (
+        'button[data-original-title="Reload Report"]'
+    )
+
+    deadline = time.time() + 30
+
+    while time.time() < deadline:
+
+        check_stop()
+
+        try:
+
+            buttons = page.locator(selector)
+
+            for i in range(buttons.count()):
+
+                candidate = buttons.nth(i)
+
+                try:
+
+                    if (
+                        candidate.is_visible()
+                        and candidate.is_enabled()
+                    ):
+
+                        candidate.scroll_into_view_if_needed(
+                            timeout=3000
+                        )
+
+                        status(
+                            "Clicking Lightbooks "
+                            "'Reload Report'..."
+                        )
+
+                        candidate.click(
+                            timeout=5000
+                        )
+
+                        status(
+                            "Lightbooks 'Reload Report' "
+                            "clicked successfully."
+                        )
+
+                        return
+
+                except Exception:
+                    pass
+
+        except Exception:
+            pass
+
+        page.wait_for_timeout(500)
+
+    raise AutomationError(
+        "Lightbooks 'Reload Report' button "
+        "was not found."
+    )
+
+
+# ============================================================
+# HELPER: VERIFY FRESH REPORT AFTER RELOAD
+# ============================================================
+
+def wait_for_fresh_report(page, status):
+    """
+    After Generate New Report + Reload Report,
+    repeatedly check the timestamp.
+
+    We do NOT assume that one reload immediately
+    produces 'just now'.
+    """
+
+    status(
+        "Waiting for the refreshed report to load..."
+    )
+
+    deadline = time.time() + 60
+
+    last_timestamp = None
+    last_age = None
+
+    while time.time() < deadline:
+
+        check_stop()
+
+        try:
+
+            timestamp = get_timestamp_text(page)
+
+            age = timestamp_age_minutes(timestamp)
+
+            # Only print when the value changes.
+            if (
+                timestamp != last_timestamp
+                or age != last_age
+            ):
+
+                status(
+                    f"TIMESTAMP AFTER RELOAD: {timestamp}"
+                )
+
+                status(
+                    f"AGE AFTER RELOAD: {age} minute(s)"
+                )
+
+                last_timestamp = timestamp
+                last_age = age
+
+            if age < REPORT_MAX_AGE_MINUTES:
+
+                status(
+                    "REPORT IS FRESH AFTER RELOAD "
+                    "(< 1 HOUR)."
+                )
+
+                return
+
+        except Exception:
+            pass
+
+        # Give Lightbooks time to update.
+        page.wait_for_timeout(3000)
+
+    raise AutomationError(
+        "Report generation/reload completed, "
+        "but the report did not become fresh "
+        "within the allowed waiting period.\n\n"
+        f"Last timestamp: {last_timestamp}\n"
+        f"Last age: {last_age} minute(s)"
+    )
+
+
+# ============================================================
 # MAIN AUTOMATION
 # ============================================================
 
@@ -64,39 +930,58 @@ def run_automation(
     download_folder=None
 ):
     """
-    Login, generate and download attendance Excel files.
+    Login, process multiple Student Groups,
+    generate/reload reports when required,
+    and download Excel files.
 
-    Important behavior:
-    - Browser stays open after successful downloads.
-    - Browser also stays open if an automation error occurs.
-    - Browser closes only after stop_automation() is called.
+    IMPORTANT:
+    Before every new section after Section 1,
+    the ENTIRE WEBPAGE is reloaded using page.reload().
     """
 
     reset_stop()
 
     def status(message):
         print(message)
+
         if status_callback:
             status_callback(message)
 
-    # --------------------------------------------------------
+    # ========================================================
     # DOWNLOAD DIRECTORY
-    # --------------------------------------------------------
+    # ========================================================
 
     if download_folder:
-        download_folder = os.path.abspath(os.path.expanduser(download_folder))
+
+        download_folder = os.path.abspath(
+            os.path.expanduser(download_folder)
+        )
+
     else:
-        download_folder = os.path.join(os.getcwd(), "downloads")
 
-    os.makedirs(download_folder, exist_ok=True)
-    status(f"Excel output folder: {download_folder}")
+        download_folder = os.path.join(
+            os.getcwd(),
+            "downloads"
+        )
 
-    # --------------------------------------------------------
+    os.makedirs(
+        download_folder,
+        exist_ok=True
+    )
+
+    status(
+        f"Excel output folder: {download_folder}"
+    )
+
+    # ========================================================
     # NORMALIZE STUDENT GROUPS
-    # --------------------------------------------------------
+    # ========================================================
 
     if isinstance(student_groups, str):
-        student_groups = [student_groups]
+
+        student_groups = [
+            student_groups
+        ]
 
     student_groups = [
         str(group).strip()
@@ -105,19 +990,30 @@ def run_automation(
     ]
 
     if not student_groups:
-        raise ValueError("No Student Groups were provided.")
+
+        raise ValueError(
+            "No Student Groups were provided."
+        )
+
+    # ========================================================
+    # PLAYWRIGHT VARIABLES
+    # ========================================================
 
     playwright = None
     browser = None
     context = None
+
     downloaded_files = []
 
     try:
+
         # ====================================================
         # START PLAYWRIGHT
         # ====================================================
 
-        status("Starting Playwright...")
+        status(
+            "Starting Playwright..."
+        )
 
         playwright = sync_playwright().start()
 
@@ -136,7 +1032,9 @@ def run_automation(
         # LOGIN
         # ====================================================
 
-        status("Opening Lightbooks login page...")
+        status(
+            "Opening Lightbooks login page..."
+        )
 
         page.goto(
             LOGIN_URL,
@@ -144,37 +1042,65 @@ def run_automation(
             timeout=60000
         )
 
-        status("Login page opened.")
+        status(
+            "Login page opened."
+        )
 
-        # The inspected page uses #login_email.
-        # Fallbacks are included for minor page changes.
+        # ----------------------------------------------------
+        # USERNAME
+        # ----------------------------------------------------
+
         username_candidates = [
-            page.locator("#login_email"),
+
             page.locator(
-                'input[name="usr"], '
-                'input[name="username"], '
-                'input[type="email"], '
+                "#login_email"
+            ),
+
+            page.locator(
+                'input[name="usr"]'
+            ),
+
+            page.locator(
+                'input[name="username"]'
+            ),
+
+            page.locator(
+                'input[type="email"]'
+            ),
+
+            page.locator(
                 'input[type="text"]'
-            )
+            ),
+
         ]
 
         username_box = None
 
         for candidate in username_candidates:
+
             try:
+
                 candidate.first.wait_for(
                     state="visible",
                     timeout=5000
                 )
+
                 username_box = candidate.first
+
                 break
+
             except Exception:
                 pass
 
         if username_box is None:
-            raise RuntimeError(
-                "Could not find the username/email field."
+
+            raise AutomationError(
+                "Could not find username/email field."
             )
+
+        # ----------------------------------------------------
+        # PASSWORD
+        # ----------------------------------------------------
 
         password_box = page.locator(
             'input[type="password"]'
@@ -185,16 +1111,23 @@ def run_automation(
             timeout=30000
         )
 
-        status("Entering credentials...")
+        # ----------------------------------------------------
+        # ENTER CREDENTIALS
+        # ----------------------------------------------------
+
+        status(
+            "Entering credentials..."
+        )
 
         username_box.fill(username)
+
         password_box.fill(password)
 
         check_stop()
 
-        # ====================================================
-        # LOGIN BUTTON
-        # ====================================================
+        # ----------------------------------------------------
+        # LOGIN
+        # ----------------------------------------------------
 
         login_button = page.get_by_role(
             "button",
@@ -209,27 +1142,36 @@ def run_automation(
 
         login_button.click()
 
-        status("Login clicked.")
+        status(
+            "Login clicked."
+        )
 
         page.wait_for_timeout(5000)
 
         check_stop()
 
         if "/login" in page.url.lower():
-            raise RuntimeError(
+
+            raise AutomationError(
                 "Login was not completed. "
-                "Please check the username/password."
+                "Please check username/password."
             )
 
         status("=" * 65)
-        status("LOGIN SUCCESSFUL")
+
+        status(
+            "LOGIN SUCCESSFUL"
+        )
+
         status("=" * 65)
 
         # ====================================================
         # OPEN REPORT
         # ====================================================
 
-        status("Opening Student Cumulative Attendance...")
+        status(
+            "Opening Student Cumulative Attendance..."
+        )
 
         page.goto(
             REPORT_URL,
@@ -241,419 +1183,170 @@ def run_automation(
 
         check_stop()
 
-        status("Attendance report page opened.")
+        status(
+            "Attendance report page opened."
+        )
 
         # ====================================================
-        # PROCESS EACH SECTION
+        # PROCESS EVERY SECTION
         # ====================================================
 
         for section_number, student_group in enumerate(
             student_groups,
             start=1
         ):
+
             check_stop()
 
             status("")
             status("=" * 65)
+
             status(
                 f"SECTION {section_number} "
                 f"OF {len(student_groups)}"
             )
+
             status("=" * 65)
 
             status(
-                f"Requested Student Group: {student_group}"
+                f"Requested Student Group: "
+                f"{student_group}"
             )
 
             # =================================================
-            # FIND STUDENT GROUP FIELD
+            # IMPORTANT:
+            # FULL PAGE RELOAD BEFORE EVERY NEW SECTION
             # =================================================
 
-            status("Finding Student Group field...")
+            if section_number > 1:
 
-            group_input = page.locator(
-                'input[data-fieldname="student_group"]'
-            ).first
-
-            try:
-                group_input.wait_for(
-                    state="visible",
-                    timeout=15000
-                )
-            except Exception:
-                group_input = page.get_by_placeholder(
-                    "Student Group"
-                ).first
-
-                group_input.wait_for(
-                    state="visible",
-                    timeout=15000
+                reload_page_before_section(
+                    page,
+                    status
                 )
 
-            status("Student Group field found.")
-
             # =================================================
-            # ENTER SECTION
+            # SELECT STUDENT GROUP
             # =================================================
 
-            group_input.click()
+            group_input = select_student_group(
+                page,
+                student_group,
+                status
+            )
 
-            group_input.fill("")
+            # =================================================
+            # WAIT FOR SELECTED SECTION REPORT
+            # =================================================
 
             status(
-                f"Entering section: {student_group}"
+                "Waiting for the selected section "
+                "report to load..."
             )
 
-            group_input.fill(student_group)
-
-            page.wait_for_timeout(2000)
+            page.wait_for_timeout(3000)
 
             check_stop()
 
+            # =================================================
+            # READ REPORT TIMESTAMP
+            # =================================================
+
             status(
-                "Waiting for matching sections..."
+                "Checking report timestamp before "
+                "Generate New Report..."
             )
 
-            # =================================================
-            # SELECT EXACT OPTION
-            # =================================================
+            timestamp = get_timestamp_text(page)
 
-            selected = False
-
-            options = page.locator(
-                '[role="option"]:visible'
-            )
-
-            for i in range(options.count()):
-                check_stop()
-
-                option = options.nth(i)
-
-                try:
-                    option_text = (
-                        option.inner_text()
-                        .strip()
-                    )
-
-                    if (
-                        option_text == student_group
-                        or option_text.startswith(
-                            student_group + " "
-                        )
-                        or option_text.startswith(
-                            student_group + "\n"
-                        )
-                    ):
-                        status(
-                            "Exact Student Group "
-                            "found in suggestions."
-                        )
-
-                        option.click()
-
-                        selected = True
-                        break
-
-                except Exception:
-                    pass
-
-            # =================================================
-            # KEYBOARD FALLBACK
-            # =================================================
-
-            if not selected:
-                status(
-                    "Exact option not directly found."
-                )
-                status(
-                    "Trying keyboard selection..."
-                )
-
-                group_input.press("ArrowDown")
-                group_input.press("Enter")
-
-                page.wait_for_timeout(1000)
-
-                try:
-                    selected = (
-                        group_input.input_value().strip()
-                        == student_group
-                    )
-                except Exception:
-                    selected = False
-
-            # =================================================
-            # FINAL OPTION CHECK
-            # =================================================
-
-            if not selected:
-                options = page.locator(
-                    '[role="option"]:visible'
-                )
-
-                for i in range(options.count()):
-                    check_stop()
-
-                    option = options.nth(i)
-
-                    try:
-                        text = (
-                            option.inner_text()
-                            .strip()
-                        )
-
-                        if text.startswith(student_group):
-                            option.click()
-                            selected = True
-                            break
-
-                    except Exception:
-                        pass
-
-            if not selected:
-                raise RuntimeError(
-                    "Could not select Student Group:\n"
-                    f"{student_group}\n\n"
-                    "Lightbooks did not show an exact "
-                    "matching Student Group."
-                )
-
-            # =================================================
-            # VERIFY SELECTED VALUE
-            # =================================================
-
-            page.wait_for_timeout(500)
-
-            selected_value = (
-                group_input.input_value()
-                .strip()
+            age_minutes = timestamp_age_minutes(
+                timestamp
             )
 
             status(
-                f"Selected value: {selected_value}"
+                f"TIMESTAMP READ: {timestamp}"
             )
-
-            if selected_value != student_group:
-                raise RuntimeError(
-                    "Student Group selection verification failed.\n\n"
-                    f"Requested: {student_group}\n"
-                    f"Selected: {selected_value}"
-                )
 
             status(
-                "Student Group selection verified."
+                f"AGE CALCULATED: "
+                f"{age_minutes} minute(s)"
             )
 
             # =================================================
-            # CHECK REPORT TIMESTAMP BEFORE GENERATE
+            # FRESH REPORT
             # =================================================
-
-            status("Checking report timestamp before Generate New Report...")
-
-            def get_timestamp_text():
-                """Read only the visible Lightbooks report-generated message."""
-                candidates = [
-                    page.locator("div.form-message.text-muted.small"),
-                    page.get_by_text(re.compile(r"This report was generated", re.I)),
-                ]
-
-                for locator in candidates:
-                    try:
-                        for i in range(locator.count()):
-                            item = locator.nth(i)
-                            if not item.is_visible():
-                                continue
-                            text = " ".join(item.inner_text().split())
-                            if "report was generated" in text.lower():
-                                match = re.search(
-                                    r"This report was generated\s+(.+?)(?:\.|$)",
-                                    text,
-                                    flags=re.IGNORECASE,
-                                )
-                                if match:
-                                    return match.group(0).strip()
-                    except Exception:
-                        pass
-
-                raise AutomationError(
-                    "Could not find the Lightbooks report timestamp message.\n"
-                    "Expected text like: 'This report was generated 5 minutes ago.'"
-                )
-
-            def timestamp_age_minutes(text):
-                t = " ".join(text.lower().split())
-                if "just now" in t:
-                    return 0
-
-                m = re.search(r"\b(\d+)\s+minute(?:s)?\b", t)
-                if m:
-                    return int(m.group(1))
-                if re.search(r"\b(?:a|an)\s+minute\b", t):
-                    return 1
-
-                h = re.search(r"\b(\d+)\s+hour(?:s)?\b", t)
-                if h:
-                    return int(h.group(1)) * 60
-                if re.search(r"\b(?:a|an)\s+hour\b", t):
-                    return 60
-
-                d = re.search(r"\b(\d+)\s+day(?:s)?\b", t)
-                if d:
-                    return int(d.group(1)) * 1440
-                if "yesterday" in t or re.search(r"\b(?:a|an)\s+day\b", t):
-                    return 1440
-
-                raise AutomationError(f"Could not understand report timestamp:\n{text}")
-
-            timestamp = get_timestamp_text()
-            age_minutes = timestamp_age_minutes(timestamp)
-
-            status(f"TIMESTAMP READ: {timestamp}")
-            status(f"AGE CALCULATED: {age_minutes} minute(s)")
 
             if age_minutes < REPORT_MAX_AGE_MINUTES:
-                status("REPORT IS FRESH (< 1 HOUR).")
-                status("TIMESTAMP IS LESS THAN 1 HOUR. DO NOT click Generate New Report.")
+
+                status(
+                    "REPORT IS FRESH (< 1 HOUR)."
+                )
+
+                status(
+                    "TIMESTAMP IS LESS THAN 1 HOUR. "
+                    "DO NOT click Generate New Report."
+                )
+
+            # =================================================
+            # OLD REPORT
+            # =================================================
 
             else:
-                status("REPORT IS OLDER THAN 1 HOUR.")
-                status("Generate New Report is required.")
 
-                # -------------------------------------------------
-                # GENERATE NEW REPORT
-                # -------------------------------------------------
-                status("Clicking Generate New Report...")
-
-                generate_button = page.locator(
-                    'button[data-label="Generate%20New%20Report"]'
+                status(
+                    "REPORT IS OLDER THAN 1 HOUR."
                 )
 
-                if generate_button.count() == 0:
-                    generate_button = page.get_by_role(
-                        "button",
-                        name="Generate New Report",
-                        exact=True
-                    )
-
-                generate_button.wait_for(
-                    state="visible",
-                    timeout=15000
+                status(
+                    "Generate New Report is required."
                 )
 
-                # Pick the visible/enabled Generate button.
-                clicked_generate = False
-                for i in range(generate_button.count()):
-                    candidate = generate_button.nth(i)
-                    try:
-                        if candidate.is_visible() and candidate.is_enabled():
-                            candidate.click()
-                            clicked_generate = True
-                            break
-                    except Exception:
-                        pass
-
-                if not clicked_generate:
-                    raise AutomationError(
-                        "Generate New Report button was found but could not be clicked."
-                    )
-
-                status("Generate New Report clicked.")
-                status("REPORT GENERATION WAIT: 2 minutes")
-
                 # -------------------------------------------------
-                # EXACTLY THE REQUESTED 2-MINUTE WAIT
+                # GENERATE
                 # -------------------------------------------------
-                remaining = REPORT_GENERATION_WAIT_SECONDS
-                while remaining > 0:
-                    check_stop()
-                    if remaining % 10 == 0 or remaining <= 5:
-                        status(f"Waiting for report generation: {remaining} seconds remaining")
-                    time.sleep(1)
-                    remaining -= 1
 
-                status("2-minute report generation wait completed.")
-
-                # -------------------------------------------------
-                # IMPORTANT: LIGHTBOOKS REPORT RELOAD BUTTON
-                # NOT browser/page.reload()
-                # -------------------------------------------------
-                status("Finding Lightbooks 'Reload Report' button...")
-
-                reload_button = page.locator(
-                    'button[data-original-title="Reload Report"]'
+                generate_new_report(
+                    page,
+                    status
                 )
 
-                reload_candidate = None
-                deadline = time.time() + 20
+                # -------------------------------------------------
+                # WAIT 2 MINUTES
+                # -------------------------------------------------
 
-                while time.time() < deadline:
-                    check_stop()
-                    try:
-                        for i in range(reload_button.count()):
-                            candidate = reload_button.nth(i)
-                            if candidate.is_visible() and candidate.is_enabled():
-                                reload_candidate = candidate
-                                break
-                    except Exception:
-                        pass
-
-                    if reload_candidate is not None:
-                        break
-                    time.sleep(0.5)
-
-                if reload_candidate is None:
-                    raise AutomationError(
-                        "Lightbooks 'Reload Report' button was not found. "
-                        "Browser reload was NOT used."
-                    )
-
-                status("Clicking Lightbooks 'Reload Report'...")
-                reload_candidate.click()
-                status("Lightbooks 'Reload Report' clicked successfully.")
+                wait_for_generation(
+                    status
+                )
 
                 # -------------------------------------------------
-                # WAIT FOR THE REPORT TO REFRESH AND READ TIMESTAMP
-                # AGAIN. DO NOT EXPORT BEFORE THIS CHECK.
+                # LIGHTBOOKS RELOAD REPORT
                 # -------------------------------------------------
-                status("Waiting for the refreshed report to load...")
-                page.wait_for_timeout(3000)
 
-                refreshed_timestamp = None
-                refreshed_age = None
-                refreshed_deadline = time.time() + 30
+                reload_report(
+                    page,
+                    status
+                )
 
-                while time.time() < refreshed_deadline:
-                    check_stop()
-                    try:
-                        refreshed_timestamp = get_timestamp_text()
-                        refreshed_age = timestamp_age_minutes(refreshed_timestamp)
-                        status(f"TIMESTAMP AFTER RELOAD: {refreshed_timestamp}")
-                        status(f"AGE AFTER RELOAD: {refreshed_age} minute(s)")
-                        break
-                    except AutomationError:
-                        time.sleep(1)
+                # -------------------------------------------------
+                # WAIT UNTIL REPORT ACTUALLY BECOMES FRESH
+                # -------------------------------------------------
 
-                if refreshed_timestamp is None or refreshed_age is None:
-                    raise AutomationError(
-                        "Report Reload was clicked, but the refreshed report timestamp "
-                        "could not be read within 30 seconds."
-                    )
+                wait_for_fresh_report(
+                    page,
+                    status
+                )
 
-                if refreshed_age >= REPORT_MAX_AGE_MINUTES:
-                    raise AutomationError(
-                        "Report Reload completed, but the report is still 1 hour old or older.\n\n"
-                        f"Timestamp: {refreshed_timestamp}\n"
-                        f"Age: {refreshed_age} minute(s)"
-                    )
-
-                status("REPORT IS FRESH AFTER RELOAD (< 1 HOUR).")
-                status("Proceeding to Menu -> Export -> Excel.")
+                status(
+                    "Proceeding to Menu -> Export -> Excel."
+                )
 
             # =================================================
-            # EXPORT MENU
+            # OPEN REPORT MENU
             # =================================================
 
-            status("Opening report menu...")
+            status(
+                "Opening report menu..."
+            )
 
             menu_buttons = page.locator(
                 'button[aria-label="Menu"]'
@@ -661,18 +1354,26 @@ def run_automation(
 
             report_menu = None
 
-            for i in range(menu_buttons.count()):
+            for i in range(
+                menu_buttons.count()
+            ):
+
                 candidate = menu_buttons.nth(i)
 
                 try:
+
                     if candidate.is_visible():
+
                         report_menu = candidate
+
                         break
+
                 except Exception:
                     pass
 
             if report_menu is None:
-                raise RuntimeError(
+
+                raise AutomationError(
                     "Report Menu button not found."
                 )
 
@@ -684,7 +1385,9 @@ def run_automation(
             # EXPORT
             # =================================================
 
-            status("Selecting Export...")
+            status(
+                "Selecting Export..."
+            )
 
             export_items = page.get_by_text(
                 "Export",
@@ -693,23 +1396,34 @@ def run_automation(
 
             export_clicked = False
 
-            for i in range(export_items.count()):
+            for i in range(
+                export_items.count()
+            ):
+
                 item = export_items.nth(i)
 
                 try:
+
                     if item.is_visible():
+
                         item.click()
+
                         export_clicked = True
+
                         break
+
                 except Exception:
                     pass
 
             if not export_clicked:
-                raise RuntimeError(
+
+                raise AutomationError(
                     "Export option not found."
                 )
 
-            status("Export dialog opened.")
+            status(
+                "Export dialog opened."
+            )
 
             page.wait_for_timeout(1200)
 
@@ -734,7 +1448,9 @@ def run_automation(
             # SELECT EXCEL
             # =================================================
 
-            status("Selecting Excel...")
+            status(
+                "Selecting Excel..."
+            )
 
             format_select = export_modal.locator(
                 'select[data-fieldname="file_format"]'
@@ -749,13 +1465,17 @@ def run_automation(
                 label="Excel"
             )
 
-            status("Excel selected.")
+            status(
+                "Excel selected."
+            )
 
             # =================================================
-            # DOWNLOAD BUTTON
+            # FIND DOWNLOAD BUTTON
             # =================================================
 
-            status("Finding Download button...")
+            status(
+                "Finding Download button..."
+            )
 
             download_buttons = export_modal.locator(
                 "button.btn-modal-primary"
@@ -763,25 +1483,39 @@ def run_automation(
 
             visible_download = None
 
-            for i in range(download_buttons.count()):
-                candidate = download_buttons.nth(i)
+            for i in range(
+                download_buttons.count()
+            ):
+
+                candidate = (
+                    download_buttons.nth(i)
+                )
 
                 try:
+
                     if (
                         candidate.is_visible()
                         and candidate.inner_text().strip()
                         == "Download"
                     ):
+
                         visible_download = candidate
+
                         break
+
                 except Exception:
                     pass
 
             if visible_download is None:
-                visible_download = export_modal.get_by_text(
-                    "Download",
-                    exact=True
-                ).last
+
+                visible_download = (
+                    export_modal
+                    .get_by_text(
+                        "Download",
+                        exact=True
+                    )
+                    .last
+                )
 
             visible_download.wait_for(
                 state="visible",
@@ -794,11 +1528,14 @@ def run_automation(
 
             check_stop()
 
-            status("Downloading Excel...")
+            status(
+                "Downloading Excel..."
+            )
 
             with page.expect_download(
                 timeout=60000
             ) as download_info:
+
                 visible_download.click()
 
             download = download_info.value
@@ -807,7 +1544,7 @@ def run_automation(
             # SAVE FILE
             # =================================================
 
-            timestamp = datetime.now().strftime(
+            timestamp_now = datetime.now().strftime(
                 "%Y-%m-%d_%H-%M-%S"
             )
 
@@ -821,7 +1558,7 @@ def run_automation(
             filename = (
                 f"Attendance_"
                 f"{safe_group}_"
-                f"{timestamp}.xlsx"
+                f"{timestamp_now}.xlsx"
             )
 
             file_path = os.path.join(
@@ -829,112 +1566,158 @@ def run_automation(
                 filename
             )
 
-            download.save_as(file_path)
+            download.save_as(
+                file_path
+            )
 
-            downloaded_files.append(file_path)
+            downloaded_files.append(
+                file_path
+            )
 
             status(
                 f"Downloaded:\n{file_path}"
             )
 
             status(
-                f"Section completed: {student_group}"
+                f"Section completed: "
+                f"{student_group}"
             )
+
+            # =================================================
+            # IMPORTANT:
+            # DO NOT immediately reuse the old page state.
+            # The next loop will perform a FULL page reload.
+            # =================================================
 
             page.wait_for_timeout(1500)
 
         # ====================================================
-        # SUCCESS
+        # ALL SECTIONS COMPLETED
         # ====================================================
 
         status("")
-        status("=" * 65)
-        status("ALL SECTIONS COMPLETED")
+
         status("=" * 65)
 
         status(
-            f"Total Excel files: {len(downloaded_files)}"
+            "ALL SECTIONS COMPLETED"
+        )
+
+        status("=" * 65)
+
+        status(
+            f"Total Excel files: "
+            f"{len(downloaded_files)}"
         )
 
         for file_path in downloaded_files:
+
             status(file_path)
 
         status("")
-        status("Browser will remain OPEN.")
+
         status(
-            "Press STOP AUTOMATION or close the "
-            "application when finished."
+            "Browser will remain OPEN."
+        )
+
+        status(
+            "Press STOP AUTOMATION or close "
+            "the application when finished."
         )
 
         # ====================================================
-        # WAIT FOREVER UNTIL USER STOPS
+        # KEEP BROWSER OPEN
         # ====================================================
 
         while not _stop_event.is_set():
+
             time.sleep(0.5)
 
-        status("Stop requested.")
+        status(
+            "Stop requested."
+        )
 
         return downloaded_files
 
+    # ========================================================
+    # ERROR
+    # ========================================================
+
     except Exception as error:
-        # ====================================================
-        # ERROR
-        #
-        # IMPORTANT:
-        # DO NOT CLOSE THE BROWSER HERE.
-        # DO NOT immediately re-raise.
-        #
-        # The browser remains open so the user can inspect it.
-        # ====================================================
 
         status("")
+
         status("=" * 65)
-        status("AUTOMATION ERROR")
+
+        status(
+            "AUTOMATION ERROR"
+        )
+
         status("=" * 65)
-        status(str(error))
+
+        status(
+            str(error)
+        )
+
         status("")
-        status("Browser will remain OPEN.")
+
+        status(
+            "Browser will remain OPEN."
+        )
+
         status(
             "Inspect the browser if needed."
         )
+
         status(
             "Press STOP AUTOMATION to close it."
         )
+
         status("=" * 65)
 
-        # Wait until the user explicitly stops automation.
+        # Keep browser open until user stops.
         while not _stop_event.is_set():
+
             time.sleep(0.5)
 
         status("")
-        status("STOP RECEIVED.")
-        status("Closing browser...")
 
-        # Re-raise only AFTER the user has stopped.
+        status(
+            "STOP RECEIVED."
+        )
+
+        status(
+            "Closing browser..."
+        )
+
         raise
 
+    # ========================================================
+    # CLEANUP
+    # ========================================================
+
     finally:
-        # ====================================================
-        # BROWSER CLEANUP
-        #
-        # This runs after success+stop OR error+stop.
-        # ====================================================
 
         try:
+
             if context:
                 context.close()
+
         except Exception:
             pass
 
         try:
+
             if browser:
                 browser.close()
+
         except Exception:
             pass
 
         try:
+
             if playwright:
                 playwright.stop()
+
         except Exception:
             pass
